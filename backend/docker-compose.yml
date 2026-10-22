@@ -1,0 +1,69 @@
+# Local infrastructure: PostgreSQL + Redis. Both bind to 127.0.0.1 only, so nothing on your network can reach them.
+# Run the API on your machine with `npm run dev` (recommended), or add the `api` profile to run it in Docker too:
+#   docker compose --profile api up --build
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: buslead
+      POSTGRES_DB: buslead
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U buslead -d buslead"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Jobs only; no persistence of secrets. AOF keeps queued retries across restarts.
+    command: ["redis-server", "--appendonly", "yes", "--bind", "0.0.0.0", "--protected-mode", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    profiles: ["api"]
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://buslead:${POSTGRES_PASSWORD}@postgres:5432/buslead?schema=public
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports:
+      - "127.0.0.1:4000:4000"
+    command: ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
+
+  worker:
+    profiles: ["api"]
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://buslead:${POSTGRES_PASSWORD}@postgres:5432/buslead?schema=public
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    command: ["node", "dist/jobs/worker.js"]
+
+volumes:
+  pgdata:
+  redisdata:

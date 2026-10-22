@@ -1,0 +1,206 @@
+@import 'tailwindcss';
+
+@theme {
+  /* System font first: it ships optical sizing and tracking tables. */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
+
+  /* Neutral canvas, one accent (blue) for actions, green/orange/red only for status. */
+  --color-canvas: #f5f5f7;
+  --color-surface: #ffffff;
+  --color-sunken: #ececf0;
+  --color-ink: #1d1d1f;
+  --color-ink-2: #48484c;
+  --color-mute: #6e6e73;
+  --color-line: #dcdce1;
+  --color-line-2: #ebebef;
+
+  --color-teal: #0071e3;
+  --color-teal-deep: #0059b8;
+  --color-teal-soft: #e4effc;
+  --color-mint: #7ab8f5;
+
+  --color-green: #1a7f37;
+  --color-green-soft: #e0f4e6;
+  --color-brass: #9a5300;
+  --color-brass-soft: #fff0d9;
+  --color-coral: #d70015;
+  --color-coral-soft: #ffe6e9;
+  --color-blue: #5046c9;
+  --color-blue-soft: #ebeafb;
+  --color-slate-soft: #ececf0;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+  body {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Tracking tightens as type grows; leading tightens with it. */
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.022em;
+    line-height: 1.12;
+    font-optical-sizing: auto;
+  }
+  h3 {
+    letter-spacing: -0.012em;
+    line-height: 1.3;
+  }
+  :focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--color-teal) 55%, transparent);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  ::selection {
+    background: var(--color-teal-soft);
+  }
+  dialog::backdrop {
+    background: rgb(0 0 0 / 0.32);
+    backdrop-filter: blur(6px);
+  }
+}
+
+@layer utilities {
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+  /* Frosted material for floating chrome. */
+  .material {
+    background: rgb(255 255 255 / 0.72);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+  }
+  .material-canvas {
+    background: rgb(245 245 247 / 0.72);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+  }
+  /* Feedback on the press itself, not on release. */
+  .press {
+    transition: transform 100ms ease-out, background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+  }
+  .press:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+}
+
+/* The waveform draws in once on first paint. */
+@keyframes bar-in {
+  from {
+    transform: scaleY(0.15);
+    opacity: 0.4;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+.wave-bar {
+  transform-origin: center;
+  animation: bar-in 520ms cubic-bezier(0.22, 0.8, 0.2, 1) both;
+}
+
+/* Sheets settle with no overshoot: the dialog did not carry momentum. */
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+dialog[open] {
+  animation: dialog-in 240ms cubic-bezier(0.22, 0.8, 0.2, 1);
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--color-sunken) 25%, var(--color-line-2) 50%, var(--color-sunken) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+/* Reduced motion keeps feedback but swaps movement for a short cross-fade. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wave-bar,
+  .skeleton {
+    animation: none;
+  }
+  dialog[open] {
+    animation: fade-in 160ms ease;
+  }
+  .press:active:not(:disabled) {
+    transform: none;
+  }
+  * {
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .material,
+  .material-canvas {
+    background: var(--color-surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  dialog::backdrop {
+    backdrop-filter: none;
+    background: rgb(0 0 0 / 0.5);
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --color-line: #8e8e93;
+    --color-line-2: #b0b0b5;
+    --color-mute: #3a3a3c;
+  }
+  .material,
+  .material-canvas {
+    background: var(--color-surface);
+    backdrop-filter: none;
+  }
+}

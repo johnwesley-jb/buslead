@@ -1,0 +1,278 @@
+// Buslead data model.
+// The overlap guard for appointments (an EXCLUDE constraint) cannot be expressed in Prisma, so it lives in
+// prisma/migrations/20261021000100_constraints. Apply migrations with `npx prisma migrate deploy`.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  admin
+  agent
+}
+
+enum LeadStatus {
+  new
+  contacted
+  follow_up_scheduled
+  in_progress
+  qualified
+  converted
+  unqualified
+  closed
+}
+
+enum Priority {
+  low
+  medium
+  high
+}
+
+enum LeadSource {
+  phone
+  manual
+}
+
+enum AppointmentStatus {
+  pending
+  confirmed
+  auto_assigned
+  rescheduling_required
+  cancelled
+  completed
+  failed
+}
+
+enum AssignmentSource {
+  caller
+  automatic
+  manual
+}
+
+enum ConfirmationStatus {
+  pending
+  reserved
+  failed
+}
+
+enum CallStatus {
+  completed
+  missed
+  failed
+}
+
+enum ProcessingStatus {
+  received
+  processing
+  processed
+  failed
+}
+
+enum RecordingStatus {
+  available
+  processing
+  unavailable
+}
+
+enum CalendarHealth {
+  healthy
+  needs_reauth
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         Role      @default(agent)
+  active       Boolean   @default(true)
+  failedLogins Int       @default(0)
+  lockedUntil  DateTime? @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
+
+  sessions Session[]
+}
+
+model Session {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  /// HMAC-SHA256 of the opaque cookie token. The raw token is never stored.
+  tokenHash  String   @unique
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  lastSeenAt DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt  DateTime @db.Timestamptz(3)
+  ip         String?
+  userAgent  String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Lead {
+  id            String     @id @default(uuid()) @db.Uuid
+  fullName      String
+  email         String
+  phoneNumber   String
+  reasonForCall String
+  notes         String     @default("")
+  status        LeadStatus @default(new)
+  priority      Priority   @default(medium)
+  source        LeadSource @default(phone)
+  timeZone      String
+  createdAt     DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime   @updatedAt @db.Timestamptz(3)
+
+  internalNotes Note[]
+  calls         Call[]
+  appointments  Appointment[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([email])
+  @@index([phoneNumber])
+}
+
+model Note {
+  id         String   @id @default(uuid()) @db.Uuid
+  leadId     String   @db.Uuid
+  authorName String
+  body       String
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId, createdAt])
+}
+
+model Call {
+  id                 String           @id @default(uuid()) @db.Uuid
+  leadId             String           @db.Uuid
+  vapiCallId         String           @unique
+  startedAt          DateTime         @db.Timestamptz(3)
+  endedAt            DateTime         @db.Timestamptz(3)
+  durationSeconds    Int              @default(0)
+  callStatus         CallStatus       @default(completed)
+  processingStatus   ProcessingStatus @default(received)
+  processingError    String?
+  processingAttempts Int              @default(0)
+  endedReason        String?
+  customerNumber     String?
+  transcript         Json?
+  /// Server-side only. Never returned by the API; recordings are streamed through an authorized proxy.
+  recordingUrl       String?
+  recordingStatus    RecordingStatus  @default(processing)
+  callerDisconnected Boolean          @default(false)
+  extracted          Json             @default("{}")
+  /// Details the assistant captured through tool calls during the conversation.
+  intake             Json?
+  createdAt          DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime         @updatedAt @db.Timestamptz(3)
+
+  lead         Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+
+  @@index([leadId])
+  @@index([startedAt])
+  @@index([processingStatus])
+}
+
+model Appointment {
+  id                  String             @id @default(uuid()) @db.Uuid
+  leadId              String             @db.Uuid
+  callId              String?            @db.Uuid
+  googleEventId       String?
+  requestedStartAt    DateTime?          @db.Timestamptz(3)
+  scheduledStartAt    DateTime?          @db.Timestamptz(3)
+  scheduledEndAt      DateTime?          @db.Timestamptz(3)
+  timeZone            String
+  status              AppointmentStatus  @default(pending)
+  assignmentSource    AssignmentSource   @default(manual)
+  confirmationStatus  ConfirmationStatus @default(pending)
+  rescheduleCount     Int                @default(0)
+  cancelReason        String?
+  reservationAttempts Int                @default(0)
+  createdAt           DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime           @updatedAt @db.Timestamptz(3)
+
+  lead Lead  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  call Call? @relation(fields: [callId], references: [id], onDelete: SetNull)
+
+  @@index([leadId])
+  @@index([callId])
+  @@index([scheduledStartAt])
+  @@index([status])
+}
+
+model ActivityLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  leadId        String?  @db.Uuid
+  callId        String?  @db.Uuid
+  appointmentId String?  @db.Uuid
+  action        String
+  details       String   @default("")
+  actor         String
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([leadId, createdAt])
+  @@index([appointmentId])
+  @@index([createdAt])
+}
+
+/// Single-row table (id = 1).
+model BusinessSettings {
+  id                         Int      @id @default(1)
+  timeZone                   String   @default("America/New_York")
+  workingDays                Int[]    @default([1, 2, 3, 4, 5])
+  openingTime                String   @default("09:00")
+  closingTime                String   @default("17:00")
+  appointmentDurationMinutes Int      @default(30)
+  bufferMinutes              Int      @default(15)
+  minimumNoticeMinutes       Int      @default(120)
+  maximumSchedulingDays      Int      @default(30)
+  holidays                   Json     @default("[]")
+  allowCallerReschedule      Boolean  @default(true)
+  rescheduleCutoffHours      Int      @default(24)
+  cancellationCutoffHours    Int      @default(24)
+  maxReschedules             Int      @default(2)
+  recordingRetentionDays     Int      @default(90)
+  updatedAt                  DateTime @updatedAt @db.Timestamptz(3)
+}
+
+/// Single-row table (id = 1). The refresh token is AES-256-GCM encrypted.
+model CalendarConnection {
+  id                 Int            @id @default(1)
+  googleAccountEmail String
+  refreshTokenEnc    String
+  scopes             String
+  calendarId         String?
+  calendars          Json           @default("[]")
+  health             CalendarHealth @default(healthy)
+  connectedAt        DateTime       @default(now()) @db.Timestamptz(3)
+  lastSyncedAt       DateTime?      @db.Timestamptz(3)
+  updatedAt          DateTime       @updatedAt @db.Timestamptz(3)
+}
+
+/// Every Vapi webhook we act on. `key` makes processing idempotent (duplicate deliveries are no-ops).
+model WebhookEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  key         String    @unique
+  type        String
+  vapiCallId  String?
+  payload     Json
+  status      String    @default("received")
+  attempts    Int       @default(0)
+  error       String?
+  receivedAt  DateTime  @default(now()) @db.Timestamptz(3)
+  processedAt DateTime? @db.Timestamptz(3)
+
+  @@index([status])
+  @@index([receivedAt])
+}
